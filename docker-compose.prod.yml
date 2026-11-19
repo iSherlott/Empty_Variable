@@ -1,0 +1,89 @@
+# Produção na VPS (T-24): Caddy (HTTPS automático) → web (Angular) e api (NestJS) → Postgres, com backup diário.
+# Uso: docker compose -f docker-compose.prod.yml --env-file .env.producao up -d --build
+# Guia completo: docs/implantacao.md
+name: emptyvariable-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?defina no .env.producao}
+      POSTGRES_USER: ${POSTGRES_USER:?defina no .env.producao}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina no .env.producao}
+    # Sem porta publicada: o banco só é acessível pela rede interna do Compose.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # A senha precisa ser segura para URL (use: openssl rand -hex 24).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      APP_ORIGIN: https://${DOMINIO:?defina no .env.producao}
+      SESSION_SECRET: ${SESSION_SECRET:?defina no .env.producao}
+      COOKIE_SECURE: "true"
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?defina no .env.producao}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?defina no .env.producao}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:?defina no .env.producao}
+      DISCORD_REDIRECT_URI: https://${DOMINIO}/api/auth/discord/callback
+      ADMIN_DISCORD_IDS: ${ADMIN_DISCORD_IDS:?defina no .env.producao}
+      # Login simulado nunca em produção (e a API também o recusa com NODE_ENV=production).
+      AUTH_DEV_LOGIN: "false"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    build: { context: ., dockerfile: web/Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_started }
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/agendar.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      # Horário em UTC. Padrão: 07:00 UTC = 04:00 em Brasília.
+      BACKUP_CRON: ${BACKUP_CRON:-0 7 * * *}
+      # Quantos backups diários manter (arquitetura §7: 14 dias).
+      BACKUP_RETENCAO: ${BACKUP_RETENCAO:-14}
+    volumes:
+      - ./database/backup:/scripts:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

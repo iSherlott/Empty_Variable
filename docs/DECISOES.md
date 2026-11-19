@@ -1,0 +1,78 @@
+# Registro de decisões, projeto Betel
+
+Fonte única de verdade para todos os agentes. Agentes técnicos não alteram regra de negócio.
+
+| ID | Tema | Status | Proposta | Referência |
+|---|---|---|---|---|
+| D1 | Pontuação absoluta ou pool fixo | APROVADO 2026-11-14 | Absoluta (sem dependência do tamanho do grupo) | analise/etapa1-pesos.md §3 |
+| D2 | Valores de B e α | APROVADO 2026-11-14 | B = 100, α = 0,5, W(r) = 1 + α(r−1), parâmetros configuráveis | §3.1 |
+| D3 | Multiplicador por run e tratamento de run com falha | APROVADO 2026-11-14 | M = M_chefe (1,0 / 1,5 / 2,0) × S_status (1 / 0,5 / 0) | §3.2 |
+| D4 | Participação parcial | APROVADO 2026-11-14 | Níveis 1 / 0,5 / 0 escolhidos pelo admin | §3.2 |
+| D5 | Multi-client | APROVADO 2026-11-14 | Cada personagem pontua com o peso da própria função (ambos creditados ao mesmo jogador) | §5 |
+| D6 | Asceta dependente da presença do MTK | APROVADO 2026-11-14 | Peso fixo (rank 3), independente de MTK | §2.2 |
+| D7 | Identidade da classe "Asceta" | APROVADO 2026-11-14 | 4ª classe da linha Espiritualista/Ceifador de Almas (Soul Ascetic) | §2.1 |
+| D8 | Ranks do Magus Dano, Cardeal e RG | APROVADO 2026-11-14 | Cardeal sobe para rank 3; Magus Dano 5 e RG 2 mantidos | §2.2 |
+| D9 | Regras e valores dos empréstimos | APROVADO 2026-11-14 | Categoria sugere % (Essencial 20%, Importante 10%, Complementar 5%), admin ajusta; credores somados ≤ 50% de P | §4.4 |
+| D9a | Sugestões que excedem o teto de 50% | APROVADO 2026-11-14 | Redução proporcional até 50%, com aviso ao admin | §4.4 |
+| D10 | Classes repetidas | APROVADO 2026-11-14 | Peso cheio para cada participante | §2.2 |
+| D11 | Fluxo de registro e aprovação das runs | APROVADO 2026-11-14 | Somente admins registram; pontos lançados imediatamente; correção por estorno + novo lançamento (US-07) | §6 |
+| A1 | Pesos por (classe, função), com snapshot por participação | PROPOSTA TÉCNICA | Não altera regra de negócio | §8 |
+| A2 | Ledger imutável de pontos | PROPOSTA TÉCNICA | Não altera regra de negócio | §8 |
+| T1 | Stack | APROVADO 2026-11-14 (usuário) | NestJS + Prisma + PostgreSQL; Angular; VPS com Docker Compose + Caddy; Discord só para login | planejamento/arquitetura.md |
+| D12 | Associação entre o usuário do Discord e o jogador/personagens | APROVADO 2026-11-14 | O membro reivindica o jogador e os personagens dele (existentes ou novos). O vínculo só vale depois que um admin aprova | arquitetura.md §5 |
+| D13 | Quem pode fazer login | APROVADO 2026-11-14 | Só membros do servidor do Discord do grupo (`guilds.members.read`). Os demais são recusados | arquitetura.md §5 |
+| D14 | Visibilidade de saldo e histórico entre membros | APROVADO 2026-11-14 | O membro vê só o próprio saldo e histórico. Admins veem tudo | arquitetura.md §6 |
+| D16 | Função padrão do Magus | APROVADO 2026-11-14 | O Magus não tem função padrão: no registro da run, o admin escolhe sempre entre Dano (r5) e Suporte com Cometa (r3) | CT-57 |
+| D17 | Parâmetros usados na correção de uma run | APROVADO 2026-11-14 | A run corrigida usa a versão de parâmetros da run original, não a vigente. Uma nova versão nunca altera pontos de runs passadas | US-07 |
+| D15 | Empréstimos: há override manual e o total passa de 50% | APROVADO 2026-11-14 | Rejeitar e pedir que o admin ajuste. A redução automática só vale quando todos os percentuais são sugestões | plano-de-testes L2 |
+| D18 | Épico II: origem do estoque do grupo | APROVADO 2026-11-14 | O loot das runs pertence ao grupo. O admin registra as entradas no estoque, com atalho "lançar drops da run" (cada drop uma vez) | analise/epico2-loja.md §3 |
+| D19 | Épico II: momento do débito da compra | APROVADO 2026-11-14 | Débito na compra, com o item reservado; o admin marca a entrega após a troca no jogo | §3 |
+| D20 | Épico II: o que pode ser vendido | APROVADO 2026-11-14 | Só itens com negociável = sim e vinculado à conta = não. "Desconhecido" bloqueia | §3 |
+| D21 | Épico II: quem define o preço | APROVADO 2026-11-14 | Preço único por item, definido pelo admin no catálogo, igual para todos os lotes e vendedores. O preço fica gravado em cada compra | §3 |
+| D22 | Épico II: venda por jogadores | APROVADO 2026-11-14 | Consignação: o item fica com o guardião como lote do vendedor; quando outro membro compra, o vendedor recebe o preço menos a taxa da loja (**na entrega, conforme a D28**). A taxa existe como parâmetro versionado e começa em 0% | §3 |
+| D23 | Épico II: destino dos pontos gastos em itens do grupo | APROVADO 2026-11-14 | Saem de circulação (dreno da economia) | §3 |
+| D24 | Épico II: limites e saldo negativo | APROVADO 2026-11-14 | Saldo nunca negativo. Limite opcional por item (máximo por membro num período), desligado por padrão e definido pelo admin | §3 |
+| D25 | Épico II: cancelamentos e devoluções | APROVADO 2026-11-14 | Compra não entregue pode ser cancelada pelo membro ou pelo admin, com estorno integral e o item volta ao estoque. Compra entregue não é cancelada. O vendedor pode retirar a oferta até ela ser vendida | §3 |
+| D28 | Épico II: quando o vendedor consignado recebe | APROVADO 2026-11-14 | Na **entrega**: o comprador paga na compra (item reservado) e o vendedor recebe quando o admin marca a entrega. Cancelar antes da entrega só devolve os pontos ao comprador, e assim nenhum saldo fica negativo (D24). Ajusta a D22 | planejamento/epico2.md §3.1–3.2 |
+| D27 | Épico II: de qual lote sai a unidade comprada | APROVADO 2026-11-14 | Ordem de chegada (FIFO): o lote mais antigo do item, seja do grupo ou consignado. Lotes do próprio comprador são pulados | planejamento/epico2.md §2.3 |
+| D26 | Épico II/III: reserva de itens para a Nebula | APROVADO 2026-11-14 | Reserva mínima por item, definida pelo admin, que fica sempre fora da loja | §3 |
+| D29 | Épico III: escopo da "Nebula" | APROVADO 2026-11-14 | As 6 Nebulosas (Armadura POD/STA, Túnica CON/CRV, Veste FEI/SAB). O membro escolhe a variante | analise/epico3-nebula.md §3 |
+| D30 | Épico III: quem fabrica | APROVADO 2026-11-14 | O guardião entrega os materiais e o próprio membro fabrica nas máquinas do Oscar | §3 |
+| D31 | Épico III: a peça Astral | APROVADO 2026-11-14 | O membro escolhe: traz a própria ou recebe do estoque. Do estoque, sai a peça pronta se houver; senão, os materiais dela (50 Fragmentos + 5 Almas de Naght) | §3 |
+| D32 | Épico III: custo para o membro | APROVADO 2026-11-14 | Preço em pontos por receita, definido pelo admin e versionado, com **dois preços** (com a peça do estoque e trazendo a própria). Os pontos saem de circulação | §3 |
+| D33 | Épico III: o que conta como disponível | APROVADO 2026-11-14 | Só o estoque do grupo, incluindo a reserva mínima (D26); consignados ficam fora | §3 |
+| D34 | Épico III: concorrência entre solicitações | APROVADO 2026-11-14 | Pontos e materiais reservados ao solicitar, por ordem de chegada; rejeição e cancelamento devolvem tudo | §3 |
+| D35 | Épico III: limites | APROVADO 2026-11-14 | Limite opcional por membro num período, por receita, desligado por padrão e definido pelo admin | §3 |
+| D36 | Épico III: cancelamento e rejeição | APROVADO 2026-11-14 | Antes da entrega, o membro cancela ou o admin rejeita (com motivo): estorno dos pontos e devolução dos materiais. Entregue não se desfaz | §3 |
+| D37 | Painéis: papel de gestor e hierarquia | APROVADO 2026-11-15 | Três papéis: MEMBRO (cliente), GESTOR e ADMIN. O admin acessa os três painéis; o gestor, o dele e o de cliente. Todos com vínculo usam a loja e a Nebula | paineis §2 |
+| D38 | Painéis: quem vira gestor | APROVADO 2026-11-15 | O admin define na tela de usuários, com auditoria. ADMIN_DISCORD_IDS continua definindo os admins | paineis §2 |
+| D39 | Painéis: "o que precisa para cada quest" | APROVADO 2026-11-15 | São as receitas da Nebula (componentes, preços em pontos, limite e ativação), com o gestor. A entrega dos materiais (fila da Nebula) fica com o admin, porque mexe no estoque | paineis §3 |
+| D40 | Painéis: jogadores e vínculos | APROVADO 2026-11-15 | A gestão de jogadores fica com o gestor. A fila de vínculos e as decisões ficam com administradores. A aprovação do próprio vínculo exige outro administrador | paineis §3 |
+| D41 | Épico IV: imagens do jogo | APROVADO 2026-11-16 | Ícones e ilustrações dos itens vêm da Divine Pride pelo ID do jogo, buscados pela API do Betel e guardados em cache (o navegador só fala com o Betel; a CSP continua fechada). Sem ID, vale o ícone desenhado de hoje. Crédito: "Imagens: Divine Pride · Ragnarok Online © Gravity" | epico4 §2 |
+| D42 | Épico IV: chave da API da Divine Pride | APROVADO 2026-11-16 | Sem chave por agora: só imagens pelo ID. A chave pode entrar depois para conferir o nome do item ao digitar o ID | epico4 §2 |
+| D43 | Épico IV: quais instâncias | APROVADO 2026-11-16 | Só as que o gestor cadastrar. O sistema começa com a Torre da Constelação (os dados de hoje). A lista da browiki serve de referência para o cadastro | epico4 §3 |
+| D44 | Épico IV: peso de cada instância | APROVADO 2026-11-16 | Cada instância tem um ou mais encontros (chefe ou modo), cada um com o próprio multiplicador. A Torre fica com Naght 25, Betelgeuse 50 e Betelgeuse 75; as outras começam com um encontro | epico4 §3 |
+| D45 | Épico IV: funções e ranks | APROVADO 2026-11-16 | Cada instância tem a própria tabela de funções e ranks. A Torre herda a tabela de hoje; uma instância nova começa vazia | epico4 §3 |
+| D46 | Épico IV: versionamento | APROVADO 2026-11-16 | Multiplicadores dos encontros e a tabela de funções e ranks de cada instância são versionados: mudar cria uma versão que vale para as runs seguintes; as runs gravam a versão usada (D2) | epico4 §3 |
+| D47 | Transferências da carteira | APROVADO 2026-11-18 | Jogadores vinculados podem transferir pontos inteiros a outro jogador com vínculo ativo, até o saldo disponível. Envio imediato, sem taxa, com confirmação prévia e registro nas duas carteiras. | Carteira |
+
+## Esclarecimentos do orquestrador (2026-11-14)
+
+São consequências diretas de decisões já aprovadas. Não criam regra nova. Origem: lacunas L1 a L12 do plano de testes.
+
+| ID | Lacuna | Esclarecimento | Base |
+|---|---|---|---|
+| C1 | L1: arredondamento com vários itens do mesmo credor | O truncamento é por empréstimo (por item). Com P=125 e dois itens Importantes, o credor recebe 12+12 e o tomador fica com 101 | etapa1 §4.2, regra 1 (um registro por item) |
+| C2 | L3: percentual gravado após a redução | Grava-se `pct_sugerido`, `pct_informado` e a parcela inteira. `pct_efetivo` fica como numeric(9,6), só para exibição. O cálculo usa a fórmula inteira exata | arquitetura §4 |
+| C3 | L4: credor ≠ tomador | A comparação é por **jogador**: não se empresta a si mesmo, nem entre os próprios personagens | D5, ledger por jogador |
+| C4 | L5: credor cadastrado | O credor precisa ser um jogador cadastrado, porque é quem recebe o lançamento | arquitetura §3 |
+| C5 | L6: P=0 | A participação e os empréstimos são gravados, mas não se criam lançamentos de valor 0 | arquitetura §3 |
+| C6 | L7: valores de f | Só 1, 0,5 ou 0. Outros valores são rejeitados | D4 |
+| C7 | L8: teto e categorias | São configuráveis e versionados em `config_pontuacao` | arquitetura §3 |
+| C8 | L9: status da run | São 3 (Concluída, Falha no chefe, Abortada). Para reclassificar uma run abortada, usa-se a correção por estorno (US-07) | D3, D11 |
+| C9 | L10: recálculo em massa | Não existe. Só a correção de uma run por vez | D2 (snapshot) |
+| C10 | L11: classe não cadastrada | O admin escolhe a classe "Outra" (rank 1) ou cadastra a classe antes | arquitetura §3 |
+| C11 | L12: aviso da redução proporcional | O aviso é informativo e não bloqueia o registro | D9a |
+| — | L2: override manual + sugestões acima de 50% | Resolvido pela D15 (aprovada) | D15 |
+| C12 | D21 + D22: preço das ofertas de jogadores | Como o preço é único por item (D21), o vendedor não sugere preço: o lote consignado é vendido pelo preço do catálogo vigente no momento da compra | D21, D22 |
+| C13 | D18 + D22: o que um jogador pode oferecer | O loot das runs é do grupo (D18), então a oferta de um jogador vale para itens que ele obteve por outra origem | D18, D22 |

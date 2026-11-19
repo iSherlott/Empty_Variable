@@ -1,0 +1,15 @@
+{
+  "name": "@betel/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Testes ponta a ponta (T-23): API + frontend + Postgres, com login simulado.",
+  "scripts": {
+    "e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "^22.10.0",
+    "embedded-postgres": "16.15.0-beta.19"
+  }
+}

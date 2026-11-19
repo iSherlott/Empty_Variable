@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.angular
+**/coverage
+.git
+.env
+docs
+backups
+.env.*
+!.env.example
+!.env.producao.example
+**/test-results

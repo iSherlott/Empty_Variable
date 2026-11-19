@@ -1,0 +1,838 @@
+// Schema do Épico I (T-07). Ver docs/planejamento/arquitetura.md §3.
+//
+// Regras que o Prisma não expressa ficam em SQL manual na migration inicial:
+// CHECKs, índices únicos parciais, chave estrangeira composta do empréstimo,
+// triggers que bloqueiam UPDATE/DELETE em lancamento_pontos e config_pontuacao,
+// e a view saldo_jogador.
+//
+// Novas migrations: gere com `prisma migrate dev --create-only` e revise o SQL
+// antes de aplicar, para não remover os índices parciais criados à mão.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Papel {
+  ADMIN
+  GESTOR // D37: pontos, runs, jogadores e receitas
+  MEMBRO
+}
+
+enum StatusRun {
+  CONCLUIDA
+  FALHA_CHEFE
+  ABORTADA
+  ESTORNADA
+}
+
+enum CategoriaEmprestimo {
+  ESSENCIAL
+  IMPORTANTE
+  COMPLEMENTAR
+}
+
+enum TipoLancamento {
+  PARTICIPACAO
+  EMPRESTIMO_DEBITO
+  EMPRESTIMO_CREDITO
+  ESTORNO
+  AJUSTE_ADMIN
+  COMPRA // reservado (Épico II)
+  VENDA // reservado (Épico II)
+  NEBULA // Épico III: débito da solicitação de Nebula
+  TRANSFERENCIA_ENVIADA
+  TRANSFERENCIA_RECEBIDA
+}
+
+enum StatusSolicitacao {
+  PENDENTE
+  APROVADA
+  REJEITADA
+}
+
+model Usuario {
+  id              String    @id @default(uuid()) @db.Uuid
+  discordId       String    @unique @map("discord_id")
+  discordUsername String    @map("discord_username")
+  globalName      String?   @map("global_name")
+  avatar          String?
+  papel           Papel     @default(MEMBRO)
+  ativo           Boolean   @default(true)
+  ultimoLogin     DateTime? @map("ultimo_login") @db.Timestamptz(3)
+  criadoEm        DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  jogador              Jogador?
+  sessoes              Sessao[]
+  solicitacoes         SolicitacaoVinculo[] @relation("solicitante")
+  solicitacoesAnalisad SolicitacaoVinculo[] @relation("analista")
+  configsCriadas       ConfigPontuacao[]
+  runsRegistradas      Run[]
+  lancamentosCriados   LancamentoPontos[]
+  auditorias           Auditoria[]
+  precosCriados        PrecoItem[]
+  configsLojaCriadas   ConfigLoja[]
+  lotesCriados         LoteEstoque[]
+  movimentosCriados    MovimentoEstoque[]
+  comprasEntregues     Compra[]             @relation("entregou")
+  comprasCanceladas    Compra[]             @relation("cancelou")
+  ofertasAnalisadas    OfertaVenda[]        @relation("analista_oferta")
+  precosReceitaCriados PrecoReceita[]
+  nebulasEntregues     SolicitacaoNebula[]  @relation("entregou_nebula")
+  nebulasEncerradas    SolicitacaoNebula[]  @relation("encerrou_nebula")
+
+  versoesInstancia VersaoInstancia[]
+  gruposCriados    GrupoInstancia[]
+
+  @@map("usuario")
+}
+
+/// Sessão no servidor. `id` é o HMAC-SHA256 do token do cookie, nunca o token em si.
+model Sessao {
+  id        String   @id
+  usuarioId String   @map("usuario_id") @db.Uuid
+  criadaEm  DateTime @default(now()) @map("criada_em") @db.Timestamptz(3)
+  ultimoUso DateTime @default(now()) @map("ultimo_uso") @db.Timestamptz(3)
+  expiraEm  DateTime @map("expira_em") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@map("sessao")
+}
+
+model Jogador {
+  id        String   @id @default(uuid()) @db.Uuid
+  apelido   String   @unique
+  usuarioId String?  @unique @map("usuario_id") @db.Uuid
+  criadoEm  DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  usuario            Usuario?             @relation(fields: [usuarioId], references: [id])
+  personagens        Personagem[]
+  solicitacoes       SolicitacaoVinculo[]
+  participacoes      Participacao[]
+  emprestimosCredor  Emprestimo[]         @relation("credor")
+  lancamentos        LancamentoPontos[]
+  lotes              LoteEstoque[]
+  compras            Compra[]
+  ofertas            OfertaVenda[]
+  solicitacoesNebula SolicitacaoNebula[]
+
+  transferenciasEnviadas  TransferenciaPontos[] @relation("transferencia_remetente")
+  transferenciasRecebidas TransferenciaPontos[] @relation("transferencia_destinatario")
+
+  @@map("jogador")
+}
+
+model Personagem {
+  id        String   @id @default(uuid()) @db.Uuid
+  jogadorId String   @map("jogador_id") @db.Uuid
+  nome      String   @unique
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  classeId     String? @map("classe_id") @db.Uuid
+  nivelBase    Int?    @map("nivel_base")
+  build        String?
+  equipamentos Json    @default("{}")
+  classe       Classe? @relation(fields: [classeId], references: [id], onDelete: Restrict)
+
+  jogador       Jogador        @relation(fields: [jogadorId], references: [id])
+  participacoes Participacao[]
+
+  @@index([jogadorId])
+  @@map("personagem")
+}
+
+/// D12: o membro reivindica um jogador (existente sem usuário, ou novo) e informa personagens novos.
+/// Índice parcial (SQL): no máximo uma solicitação PENDENTE por usuário.
+model SolicitacaoVinculo {
+  id              String            @id @default(uuid()) @db.Uuid
+  usuarioId       String            @map("usuario_id") @db.Uuid
+  jogadorId       String?           @map("jogador_id") @db.Uuid
+  apelidoProposto String?           @map("apelido_proposto")
+  /// { "novos": string[] } — nomes de personagens a cadastrar na aprovação.
+  personagens     Json              @db.JsonB
+  status          StatusSolicitacao @default(PENDENTE)
+  motivo          String?
+  analisadaPorId  String?           @map("analisada_por") @db.Uuid
+  analisadaEm     DateTime?         @map("analisada_em") @db.Timestamptz(3)
+  criadaEm        DateTime          @default(now()) @map("criada_em") @db.Timestamptz(3)
+
+  usuario      Usuario  @relation("solicitante", fields: [usuarioId], references: [id])
+  jogador      Jogador? @relation(fields: [jogadorId], references: [id])
+  analisadaPor Usuario? @relation("analista", fields: [analisadaPorId], references: [id])
+
+  @@index([usuarioId])
+  @@index([status])
+  @@map("solicitacao_vinculo")
+}
+
+model Classe {
+  id           String  @id @default(uuid()) @db.Uuid
+  nomeOficial  String  @unique @map("nome_oficial")
+  apelidoGrupo String? @map("apelido_grupo")
+  ativa        Boolean @default(true)
+
+  funcoes     FuncaoClasse[]
+  personagens Personagem[]
+
+  @@map("classe")
+}
+
+/// CHECK (SQL): rank entre 1 e 5. Índice parcial (SQL): uma função padrão por classe.
+/// D45: cada versão de instância tem a própria tabela de funções e ranks. Imutável (D46).
+model FuncaoClasse {
+  id                String  @id @default(uuid()) @db.Uuid
+  versaoInstanciaId String  @map("versao_instancia_id") @db.Uuid
+  classeId          String  @map("classe_id") @db.Uuid
+  nome              String
+  rank              Int
+  padrao            Boolean @default(false)
+
+  versaoInstancia VersaoInstancia @relation(fields: [versaoInstanciaId], references: [id])
+  classe          Classe          @relation(fields: [classeId], references: [id])
+  participacoes   Participacao[]
+
+  @@unique([versaoInstanciaId, classeId, nome])
+  @@unique([id, versaoInstanciaId])
+  @@map("funcao_classe")
+}
+
+/// Versionada e imutável (trigger bloqueia UPDATE/DELETE). Fatores em centésimos, percentuais em pontos-base.
+model ConfigPontuacao {
+  id                   String   @id @default(uuid()) @db.Uuid
+  versao               Int      @unique
+  base                 Int
+  alphaCentesimos      Int      @map("alpha_centesimos")
+  sConcluidaCentesimos Int      @map("s_concluida_centesimos")
+  sFalhaCentesimos     Int      @map("s_falha_centesimos")
+  sAbortadaCentesimos  Int      @map("s_abortada_centesimos")
+  pctEssencialBp       Int      @map("pct_essencial_bp")
+  pctImportanteBp      Int      @map("pct_importante_bp")
+  pctComplementarBp    Int      @map("pct_complementar_bp")
+  tetoCredoresBp       Int      @map("teto_credores_bp")
+  vigenteDesde         DateTime @default(now()) @map("vigente_desde") @db.Timestamptz(3)
+  criadaPorId          String?  @map("criada_por") @db.Uuid
+
+  criadaPor Usuario? @relation(fields: [criadaPorId], references: [id])
+  runs      Run[]
+
+  @@map("config_pontuacao")
+}
+
+/// `negociavel` e `vinculadoConta` começam nulos (desconhecidos) até a verificação no jogo.
+model ItemCatalogo {
+  id                String   @id @default(uuid()) @db.Uuid
+  nome              String   @unique
+  idJogo            Int?     @unique @map("id_jogo")
+  tipo              String?
+  negociavel        Boolean?
+  vinculadoConta    Boolean? @map("vinculado_conta")
+  ativo             Boolean  @default(true)
+  /// Épico II (D26): unidades do estoque do grupo que nunca vão para a loja (reserva para a Nebula).
+  reservaMinima     Int      @default(0) @map("reserva_minima")
+  /// Épico II (D24): limite opcional de compras por membro num período. Os dois nulos ou os dois > 0.
+  limitePorMembro   Int?     @map("limite_por_membro")
+  limitePeriodoDias Int?     @map("limite_periodo_dias")
+
+  emprestimos        Emprestimo[]
+  drops              DropRun[]
+  precos             PrecoItem[]
+  lotes              LoteEstoque[]
+  compras            Compra[]
+  ofertas            OfertaVenda[]
+  receitasProduzidas Receita[]           @relation("produz")
+  componenteDe       ReceitaComponente[]
+
+  @@map("item_catalogo")
+}
+
+model Run {
+  id                  String    @id @default(uuid()) @db.Uuid
+  data                DateTime  @db.Date
+  /// Épico IV (D44): a versão da instância e o encontro (chefe ou modo) desta run.
+  versaoInstanciaId   String    @map("versao_instancia_id") @db.Uuid
+  encontroId          String    @map("encontro_id") @db.Uuid
+  status              StatusRun
+  pontuacaoBetelgeuse Int?      @map("pontuacao_betelgeuse")
+  configId            String    @map("config_id") @db.Uuid
+  registradaPorId     String    @map("registrada_por") @db.Uuid
+  corrigeRunId        String?   @unique @map("corrige_run_id") @db.Uuid
+  observacao          String?
+  criadaEm            DateTime  @default(now()) @map("criada_em") @db.Timestamptz(3)
+
+  config          ConfigPontuacao    @relation(fields: [configId], references: [id])
+  versaoInstancia VersaoInstancia    @relation(fields: [versaoInstanciaId], references: [id])
+  encontro        Encontro           @relation(fields: [encontroId, versaoInstanciaId], references: [id, versaoInstanciaId])
+  registradaPor   Usuario            @relation(fields: [registradaPorId], references: [id])
+  corrigeRun      Run?               @relation("correcao", fields: [corrigeRunId], references: [id])
+  corrigidaPor    Run?               @relation("correcao")
+  participacoes   Participacao[]
+  drops           DropRun[]
+  lancamentos     LancamentoPontos[]
+
+  @@index([data])
+  @@index([versaoInstanciaId])
+  @@map("run")
+}
+
+/// Snapshot de todos os fatores usados no cálculo (A1). CHECKs (SQL): rank 1–5, fração 0/50/100, pontos ≥ 0.
+model Participacao {
+  id                            String @id @default(uuid()) @db.Uuid
+  runId                         String @map("run_id") @db.Uuid
+  personagemId                  String @map("personagem_id") @db.Uuid
+  jogadorId                     String @map("jogador_id") @db.Uuid
+  funcaoId                      String @map("funcao_id") @db.Uuid
+  fracaoCentesimos              Int    @map("fracao_centesimos")
+  rank                          Int
+  base                          Int
+  alphaCentesimos               Int    @map("alpha_centesimos")
+  pesoCentesimos                Int    @map("peso_centesimos")
+  multiplicadorChefeCentesimos  Int    @map("m_chefe_centesimos")
+  multiplicadorStatusCentesimos Int    @map("s_status_centesimos")
+  pontosGerados                 Int    @map("pontos_gerados")
+
+  run         Run                @relation(fields: [runId], references: [id])
+  personagem  Personagem         @relation(fields: [personagemId], references: [id])
+  jogador     Jogador            @relation(fields: [jogadorId], references: [id])
+  funcao      FuncaoClasse       @relation(fields: [funcaoId], references: [id])
+  emprestimos Emprestimo[]
+  lancamentos LancamentoPontos[]
+
+  @@unique([runId, personagemId])
+  @@unique([id, jogadorId]) // alvo da FK composta de emprestimo
+  @@map("participacao")
+}
+
+/// CHECKs (SQL): credor ≠ tomador (C3), item do catálogo ou descrição, percentuais 0–10000, pontos ≥ 0.
+/// FK composta (SQL): (participacao_id, tomador_jogador_id) → participacao(id, jogador_id).
+model Emprestimo {
+  id               String              @id @default(uuid()) @db.Uuid
+  participacaoId   String              @map("participacao_id") @db.Uuid
+  tomadorJogadorId String              @map("tomador_jogador_id") @db.Uuid
+  credorJogadorId  String              @map("credor_jogador_id") @db.Uuid
+  itemId           String?             @map("item_id") @db.Uuid
+  itemDescricao    String?             @map("item_descricao")
+  categoria        CategoriaEmprestimo
+  pctSugeridoBp    Int                 @map("pct_sugerido_bp")
+  pctInformadoBp   Int?                @map("pct_informado_bp")
+  /// Só para exibição (C2). O cálculo usa a fórmula inteira exata.
+  pctEfetivo       Decimal             @map("pct_efetivo") @db.Decimal(9, 6)
+  pontos           Int
+
+  participacao Participacao       @relation(fields: [participacaoId], references: [id])
+  credor       Jogador            @relation("credor", fields: [credorJogadorId], references: [id])
+  item         ItemCatalogo?      @relation(fields: [itemId], references: [id])
+  lancamentos  LancamentoPontos[]
+
+  @@index([participacaoId])
+  @@map("emprestimo")
+}
+
+/// CHECK (SQL): quantidade > 0.
+model DropRun {
+  id         String @id @default(uuid()) @db.Uuid
+  runId      String @map("run_id") @db.Uuid
+  itemId     String @map("item_id") @db.Uuid
+  quantidade Int
+
+  run        Run                @relation(fields: [runId], references: [id])
+  item       ItemCatalogo       @relation(fields: [itemId], references: [id])
+  movimentos MovimentoEstoque[]
+
+  @@map("drop_run")
+}
+
+/// Append-only: trigger (SQL) bloqueia UPDATE e DELETE. CHECK (SQL): valor ≠ 0 (C5).
+model LancamentoPontos {
+  id                  String         @id @default(uuid()) @db.Uuid
+  jogadorId           String         @map("jogador_id") @db.Uuid
+  valor               Int
+  tipo                TipoLancamento
+  criadoPorId         String         @map("criado_por") @db.Uuid
+  criadoEm            DateTime       @default(now()) @map("criado_em") @db.Timestamptz(3)
+  runId               String?        @map("run_id") @db.Uuid
+  participacaoId      String?        @map("participacao_id") @db.Uuid
+  emprestimoId        String?        @map("emprestimo_id") @db.Uuid
+  estornaLancamentoId String?        @unique @map("estorna_lancamento_id") @db.Uuid
+  observacao          String?
+  /// Épico II: origem na loja (COMPRA do comprador; VENDA ao vendedor por linha de compra).
+  compraId            String?        @map("compra_id") @db.Uuid
+  compraLoteId        String?        @map("compra_lote_id") @db.Uuid
+  /// Épico III: solicitação de Nebula de origem (débito NEBULA e o estorno dele).
+  solicitacaoNebulaId String?        @map("solicitacao_nebula_id") @db.Uuid
+
+  jogador           Jogador            @relation(fields: [jogadorId], references: [id])
+  criadoPor         Usuario            @relation(fields: [criadoPorId], references: [id])
+  run               Run?               @relation(fields: [runId], references: [id])
+  participacao      Participacao?      @relation(fields: [participacaoId], references: [id])
+  emprestimo        Emprestimo?        @relation(fields: [emprestimoId], references: [id])
+  estornaLancamento LancamentoPontos?  @relation("estorno", fields: [estornaLancamentoId], references: [id])
+  estornadoPor      LancamentoPontos?  @relation("estorno")
+  compra            Compra?            @relation(fields: [compraId], references: [id])
+  compraLote        CompraLote?        @relation(fields: [compraLoteId], references: [id])
+  solicitacaoNebula SolicitacaoNebula? @relation(fields: [solicitacaoNebulaId], references: [id])
+
+  transferenciaId String?              @map("transferencia_id") @db.Uuid
+  transferencia   TransferenciaPontos? @relation(fields: [transferenciaId], references: [id], onDelete: Restrict)
+
+  @@unique([transferenciaId, tipo])
+  @@index([jogadorId, criadoEm])
+  @@index([runId])
+  @@index([compraId])
+  @@map("lancamento_pontos")
+}
+
+model TransferenciaPontos {
+  id             String             @id @db.Uuid
+  remetenteId    String             @map("remetente_id") @db.Uuid
+  destinatarioId String             @map("destinatario_id") @db.Uuid
+  pontos         Int
+  criadaEm       DateTime           @default(now()) @map("criada_em") @db.Timestamptz(3)
+  remetente      Jogador            @relation("transferencia_remetente", fields: [remetenteId], references: [id])
+  destinatario   Jogador            @relation("transferencia_destinatario", fields: [destinatarioId], references: [id])
+  lancamentos    LancamentoPontos[]
+
+  @@map("transferencia_pontos")
+}
+
+model Auditoria {
+  id         String   @id @default(uuid()) @db.Uuid
+  usuarioId  String?  @map("usuario_id") @db.Uuid
+  acao       String
+  entidade   String
+  entidadeId String?  @map("entidade_id")
+  antes      Json?    @db.JsonB
+  depois     Json?    @db.JsonB
+  em         DateTime @default(now()) @db.Timestamptz(3)
+
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@index([entidade, entidadeId])
+  @@map("auditoria")
+}
+
+// =====================================================================
+// Épico II: loja de pontos e estoque (docs/planejamento/epico2.md §2)
+// Regras de banco em SQL manual na migration: CHECKs, imutabilidade,
+// lote nunca negativo e um drop lançado no estoque uma única vez.
+// =====================================================================
+
+enum OrigemLote {
+  MANUAL
+  DROP_RUN
+  OFERTA
+}
+
+enum TipoMovimentoEstoque {
+  ENTRADA
+  VENDA
+  DEVOLUCAO
+  RETIRADA
+  AJUSTE
+  NEBULA // reservado (Épico III)
+}
+
+enum StatusCompra {
+  PENDENTE_ENTREGA
+  ENTREGUE
+  CANCELADA
+}
+
+enum StatusOferta {
+  PENDENTE
+  APROVADA
+  REJEITADA
+  RETIRADA_SOLICITADA
+  RETIRADA
+  ESGOTADA
+}
+
+/// D21: preço único por item, versionado (só inclusão). Nulo = fora da loja. Vigente = o mais recente.
+model PrecoItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  itemId       String   @map("item_id") @db.Uuid
+  /// 1, 2, 3... por item. O vigente é o de maior versão.
+  versao       Int
+  precoPontos  Int?     @map("preco_pontos")
+  vigenteDesde DateTime @default(now()) @map("vigente_desde") @db.Timestamptz(3)
+  criadoPorId  String?  @map("criado_por") @db.Uuid
+
+  item      ItemCatalogo @relation(fields: [itemId], references: [id])
+  criadoPor Usuario?     @relation(fields: [criadoPorId], references: [id])
+
+  @@unique([itemId, versao])
+  @@map("preco_item")
+}
+
+/// D22: parâmetros da loja, versionados e imutáveis. Taxa de consignação em pontos-base (v1 = 0).
+model ConfigLoja {
+  id                String   @id @default(uuid()) @db.Uuid
+  versao            Int      @unique
+  taxaConsignacaoBp Int      @map("taxa_consignacao_bp")
+  vigenteDesde      DateTime @default(now()) @map("vigente_desde") @db.Timestamptz(3)
+  criadaPorId       String?  @map("criada_por") @db.Uuid
+
+  criadaPor Usuario? @relation(fields: [criadaPorId], references: [id])
+  compras   Compra[]
+
+  @@map("config_loja")
+}
+
+/// Lote do grupo (dono nulo, D18) ou consignado de um jogador (D22). A quantidade é a soma dos movimentos.
+model LoteEstoque {
+  id            String     @id @default(uuid()) @db.Uuid
+  itemId        String     @map("item_id") @db.Uuid
+  donoJogadorId String?    @map("dono_jogador_id") @db.Uuid
+  origem        OrigemLote
+  ofertaId      String?    @unique @map("oferta_id") @db.Uuid
+  /// Ordem de chegada estrita (D27): define de qual lote sai a unidade comprada.
+  ordem         Int        @unique @default(autoincrement())
+  ativo         Boolean    @default(true)
+  criadoEm      DateTime   @default(now()) @map("criado_em") @db.Timestamptz(3)
+  criadoPorId   String     @map("criado_por") @db.Uuid
+
+  item       ItemCatalogo       @relation(fields: [itemId], references: [id])
+  dono       Jogador?           @relation(fields: [donoJogadorId], references: [id])
+  oferta     OfertaVenda?       @relation(fields: [ofertaId], references: [id])
+  criadoPor  Usuario            @relation(fields: [criadoPorId], references: [id])
+  movimentos MovimentoEstoque[]
+  compras    CompraLote[]
+
+  @@index([itemId, ordem])
+  @@map("lote_estoque")
+}
+
+/// Ledger do estoque: só inclusão. Trigger recusa lote com soma negativa.
+model MovimentoEstoque {
+  valorUnitarioPontos Int?                 @map("valor_unitario_pontos")
+  origemEntrada       String?              @map("origem_entrada")
+  id                  String               @id @default(uuid()) @db.Uuid
+  loteId              String               @map("lote_id") @db.Uuid
+  quantidade          Int
+  tipo                TipoMovimentoEstoque
+  dropRunId           String?              @map("drop_run_id") @db.Uuid
+  compraId            String?              @map("compra_id") @db.Uuid
+  solicitacaoNebulaId String?              @map("solicitacao_nebula_id") @db.Uuid
+  motivo              String?
+  criadoPorId         String               @map("criado_por") @db.Uuid
+  criadoEm            DateTime             @default(now()) @map("criado_em") @db.Timestamptz(3)
+
+  lote              LoteEstoque        @relation(fields: [loteId], references: [id])
+  dropRun           DropRun?           @relation(fields: [dropRunId], references: [id])
+  compra            Compra?            @relation(fields: [compraId], references: [id])
+  solicitacaoNebula SolicitacaoNebula? @relation(fields: [solicitacaoNebulaId], references: [id])
+  criadoPor         Usuario            @relation(fields: [criadoPorId], references: [id])
+
+  @@index([loteId])
+  @@index([criadoEm])
+  @@map("movimento_estoque")
+}
+
+/// D19: débito na compra, item reservado até a entrega. Preço e taxa gravados (D21, D22).
+model Compra {
+  id                 String       @id @default(uuid()) @db.Uuid
+  compradorJogadorId String       @map("comprador_jogador_id") @db.Uuid
+  itemId             String       @map("item_id") @db.Uuid
+  quantidade         Int
+  precoUnitario      Int          @map("preco_unitario")
+  total              Int
+  configLojaId       String       @map("config_loja_id") @db.Uuid
+  status             StatusCompra @default(PENDENTE_ENTREGA)
+  criadaEm           DateTime     @default(now()) @map("criada_em") @db.Timestamptz(3)
+  entregueEm         DateTime?    @map("entregue_em") @db.Timestamptz(3)
+  entreguePorId      String?      @map("entregue_por") @db.Uuid
+  canceladaEm        DateTime?    @map("cancelada_em") @db.Timestamptz(3)
+  canceladaPorId     String?      @map("cancelada_por") @db.Uuid
+  motivoCancelamento String?      @map("motivo_cancelamento")
+
+  comprador    Jogador            @relation(fields: [compradorJogadorId], references: [id])
+  item         ItemCatalogo       @relation(fields: [itemId], references: [id])
+  configLoja   ConfigLoja         @relation(fields: [configLojaId], references: [id])
+  entreguePor  Usuario?           @relation("entregou", fields: [entreguePorId], references: [id])
+  canceladaPor Usuario?           @relation("cancelou", fields: [canceladaPorId], references: [id])
+  lotes        CompraLote[]
+  movimentos   MovimentoEstoque[]
+  lancamentos  LancamentoPontos[]
+
+  @@index([compradorJogadorId, criadaEm])
+  @@index([status, criadaEm])
+  @@map("compra")
+}
+
+/// Uma linha por lote consumido na compra (D27: ordem de chegada).
+model CompraLote {
+  id            String @id @default(uuid()) @db.Uuid
+  compraId      String @map("compra_id") @db.Uuid
+  loteId        String @map("lote_id") @db.Uuid
+  quantidade    Int
+  valorVendedor Int    @map("valor_vendedor")
+
+  compra      Compra             @relation(fields: [compraId], references: [id])
+  lote        LoteEstoque        @relation(fields: [loteId], references: [id])
+  lancamentos LancamentoPontos[]
+
+  @@index([compraId])
+  @@map("compra_lote")
+}
+
+/// D22, C12, C13: oferta de um jogador, sem preço (vale o do item). Aprovada vira lote consignado.
+model OfertaVenda {
+  id             String       @id @default(uuid()) @db.Uuid
+  jogadorId      String       @map("jogador_id") @db.Uuid
+  itemId         String       @map("item_id") @db.Uuid
+  quantidade     Int
+  status         StatusOferta @default(PENDENTE)
+  motivo         String?
+  criadaEm       DateTime     @default(now()) @map("criada_em") @db.Timestamptz(3)
+  analisadaPorId String?      @map("analisada_por") @db.Uuid
+  analisadaEm    DateTime?    @map("analisada_em") @db.Timestamptz(3)
+
+  jogador      Jogador      @relation(fields: [jogadorId], references: [id])
+  item         ItemCatalogo @relation(fields: [itemId], references: [id])
+  analisadaPor Usuario?     @relation("analista_oferta", fields: [analisadaPorId], references: [id])
+  lote         LoteEstoque?
+
+  @@index([status, criadaEm])
+  @@map("oferta_venda")
+}
+
+// =====================================================================
+// Épico III: receitas e solicitação de Nebula (docs/planejamento/epico3.md §2)
+// Regras de banco em SQL manual na migration: CHECKs, uma peça-base por
+// receita, imutabilidade dos preços e coerência da solicitação.
+// =====================================================================
+
+enum StatusSolicitacaoNebula {
+  PENDENTE
+  ENTREGUE
+  CANCELADA
+  REJEITADA
+}
+
+/// D31: de onde veio a peça-base quando o membro não a trouxe.
+enum PecaDoEstoque {
+  PRONTA
+  MATERIAIS
+}
+
+/// Receita de fabricação. Cadastrada e validada pelo admin; as da fonte entram inativas ("a validar").
+model Receita {
+  id                String   @id @default(uuid()) @db.Uuid
+  nome              String   @unique
+  itemProduzidoId   String   @map("item_produzido_id") @db.Uuid
+  /// D29: as 6 Nebulosas podem ser solicitadas; as peças Astrais não.
+  solicitavel       Boolean  @default(false)
+  ativa             Boolean  @default(false)
+  fonte             String?
+  /// D35: limite opcional por membro num período (os dois nulos ou os dois > 0).
+  limitePorMembro   Int?     @map("limite_por_membro")
+  limitePeriodoDias Int?     @map("limite_periodo_dias")
+  criadaEm          DateTime @default(now()) @map("criada_em") @db.Timestamptz(3)
+
+  itemProduzido ItemCatalogo        @relation("produz", fields: [itemProduzidoId], references: [id])
+  componentes   ReceitaComponente[]
+  precos        PrecoReceita[]
+  solicitacoes  SolicitacaoNebula[]
+  /// D31: receita da peça-base (para usar os materiais quando não houver a peça pronta).
+  pecaDe        ReceitaPeca?        @relation("nebulosa")
+  usadaComoPeca ReceitaPeca[]       @relation("peca")
+
+  @@map("receita")
+}
+
+model ReceitaComponente {
+  id         String  @id @default(uuid()) @db.Uuid
+  receitaId  String  @map("receita_id") @db.Uuid
+  itemId     String  @map("item_id") @db.Uuid
+  quantidade Int
+  /// A peça Astral, que o membro pode trazer (D31). No máximo uma por receita.
+  pecaBase   Boolean @default(false) @map("peca_base")
+
+  receita Receita      @relation(fields: [receitaId], references: [id], onDelete: Cascade)
+  item    ItemCatalogo @relation(fields: [itemId], references: [id])
+
+  @@unique([receitaId, itemId])
+  @@map("receita_componente")
+}
+
+model ReceitaPeca {
+  receitaId     String @id @map("receita_id") @db.Uuid
+  receitaPecaId String @map("receita_peca_id") @db.Uuid
+
+  receita     Receita @relation("nebulosa", fields: [receitaId], references: [id], onDelete: Cascade)
+  receitaPeca Receita @relation("peca", fields: [receitaPecaId], references: [id])
+
+  @@map("receita_peca")
+}
+
+/// D32: dois preços por receita, versionados (só inclusão). O vigente é o de maior versão.
+model PrecoReceita {
+  id                String   @id @default(uuid()) @db.Uuid
+  receitaId         String   @map("receita_id") @db.Uuid
+  versao            Int
+  precoComPeca      Int      @map("preco_com_peca")
+  precoTrazendoPeca Int      @map("preco_trazendo_peca")
+  vigenteDesde      DateTime @default(now()) @map("vigente_desde") @db.Timestamptz(3)
+  criadoPorId       String?  @map("criado_por") @db.Uuid
+
+  receita      Receita             @relation(fields: [receitaId], references: [id])
+  criadoPor    Usuario?            @relation(fields: [criadoPorId], references: [id])
+  solicitacoes SolicitacaoNebula[]
+
+  @@unique([receitaId, versao])
+  @@map("preco_receita")
+}
+
+/// US-18: pontos e materiais reservados ao solicitar (D34); o admin entrega ou rejeita; o membro cancela (D36).
+model SolicitacaoNebula {
+  id             String                  @id @default(uuid()) @db.Uuid
+  jogadorId      String                  @map("jogador_id") @db.Uuid
+  receitaId      String                  @map("receita_id") @db.Uuid
+  trazPeca       Boolean                 @map("traz_peca")
+  pecaDoEstoque  PecaDoEstoque?          @map("peca_do_estoque")
+  preco          Int
+  precoReceitaId String                  @map("preco_receita_id") @db.Uuid
+  status         StatusSolicitacaoNebula @default(PENDENTE)
+  motivo         String?
+  criadaEm       DateTime                @default(now()) @map("criada_em") @db.Timestamptz(3)
+  entregueEm     DateTime?               @map("entregue_em") @db.Timestamptz(3)
+  entreguePorId  String?                 @map("entregue_por") @db.Uuid
+  encerradaEm    DateTime?               @map("encerrada_em") @db.Timestamptz(3)
+  encerradaPorId String?                 @map("encerrada_por") @db.Uuid
+
+  jogador      Jogador            @relation(fields: [jogadorId], references: [id])
+  receita      Receita            @relation(fields: [receitaId], references: [id])
+  precoReceita PrecoReceita       @relation(fields: [precoReceitaId], references: [id])
+  entreguePor  Usuario?           @relation("entregou_nebula", fields: [entreguePorId], references: [id])
+  encerradaPor Usuario?           @relation("encerrou_nebula", fields: [encerradaPorId], references: [id])
+  movimentos   MovimentoEstoque[]
+  lancamentos  LancamentoPontos[]
+
+  @@index([jogadorId, criadaEm])
+  @@index([status, criadaEm])
+  @@map("solicitacao_nebula")
+}
+
+// ---------------------------------------------------------------------------
+// Épico IV, M14 (D41): imagens dos itens vindas da Divine Pride, em cache.
+// ---------------------------------------------------------------------------
+
+enum TipoImagem {
+  ICONE
+  ILUSTRACAO
+}
+
+/// Cache das imagens por ID do jogo. "existe = false" lembra que a Divine Pride não tem a imagem.
+model ImagemCache {
+  idJogo    Int        @map("id_jogo")
+  tipo      TipoImagem
+  existe    Boolean
+  conteudo  Bytes?
+  mime      String?
+  buscadaEm DateTime   @default(now()) @map("buscada_em") @db.Timestamptz(3)
+
+  @@id([idJogo, tipo])
+  @@map("imagem_cache")
+}
+
+// ---------------------------------------------------------------------------
+// Épico IV, M15 (D43 a D46): instâncias com encontros e funções versionados.
+// ---------------------------------------------------------------------------
+
+enum RetornoInstancia {
+  DIARIO
+  TRES_DIAS
+  HORAS
+  SEMANAL
+  OUTRO
+}
+
+enum ModoInstancia {
+  SOLO
+  GRUPO
+}
+
+enum DificuldadeInstancia {
+  FACIL
+  MEDIA
+  DIFICIL
+}
+
+/// D43: cadastrada pelo gestor. Os campos de referência (nível, retorno…) são só informativos.
+model Instancia {
+  id          String                @id @default(uuid()) @db.Uuid
+  nome        String                @unique
+  /// Código estável (a Torre é "TORRE_CONSTELACAO"); nulo nas cadastradas pelo gestor.
+  codigo      String?               @unique
+  ativa       Boolean               @default(false)
+  nivelMinimo Int?                  @map("nivel_minimo")
+  retorno     RetornoInstancia?
+  modo        ModoInstancia?
+  dificuldade DificuldadeInstancia?
+  requisito   String?
+  premiacao   String?
+  criadaEm    DateTime              @default(now()) @map("criada_em") @db.Timestamptz(3)
+
+  versoes VersaoInstancia[]
+  grupos  GrupoInstancia[]
+
+  @@map("instancia")
+}
+
+/// D46: cada mudança de encontros ou funções é uma versão nova (só inclusão).
+model VersaoInstancia {
+  id           String   @id @default(uuid()) @db.Uuid
+  instanciaId  String   @map("instancia_id") @db.Uuid
+  versao       Int
+  vigenteDesde DateTime @default(now()) @map("vigente_desde") @db.Timestamptz(3)
+  criadaPorId  String?  @map("criada_por") @db.Uuid
+
+  instancia Instancia      @relation(fields: [instanciaId], references: [id])
+  criadaPor Usuario?       @relation(fields: [criadaPorId], references: [id])
+  encontros Encontro[]
+  funcoes   FuncaoClasse[]
+  runs      Run[]
+
+  @@unique([instanciaId, versao])
+  @@map("versao_instancia")
+}
+
+/// D44: chefe ou modo da instância, com o próprio multiplicador (centésimos).
+model Encontro {
+  id                      String  @id @default(uuid()) @db.Uuid
+  versaoInstanciaId       String  @map("versao_instancia_id") @db.Uuid
+  nome                    String
+  /// Código estável dos encontros da Torre (NAGHT_25, BETELGEUSE_50, BETELGEUSE_75).
+  codigo                  String?
+  multiplicadorCentesimos Int     @map("multiplicador_centesimos")
+  ordem                   Int
+
+  versaoInstancia VersaoInstancia @relation(fields: [versaoInstanciaId], references: [id])
+  runs            Run[]
+
+  @@unique([versaoInstanciaId, nome])
+  @@unique([id, versaoInstanciaId])
+  @@map("encontro")
+}
+
+model GrupoInstancia {
+  id          String    @id @default(uuid()) @db.Uuid
+  instanciaId String    @map("instancia_id") @db.Uuid
+  criadoPorId String    @map("criado_por_id") @db.Uuid
+  agendadoEm  DateTime  @map("agendado_em") @db.Timestamptz(3)
+  criadoEm    DateTime  @default(now()) @map("criado_em") @db.Timestamptz(3)
+  fechadoEm   DateTime? @map("fechado_em") @db.Timestamptz(3)
+  vagas       Json
+
+  instancia Instancia @relation(fields: [instanciaId], references: [id], onDelete: Restrict)
+  criadoPor Usuario   @relation(fields: [criadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([agendadoEm])
+  @@map("grupo_instancia")
+}

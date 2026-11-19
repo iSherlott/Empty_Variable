@@ -1,0 +1,30 @@
+# Caddy na frente de tudo: certificado HTTPS automático (Let's Encrypt) para {$DOMINIO}.
+# /api/* vai para a API; o resto é o frontend Angular (nginx do serviço web).
+{$DOMINIO} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Angular Material injeta estilos em tempo de execução ('unsafe-inline' só em style-src).
+		# Fontes do Google e avatares do Discord são as únicas origens externas.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://discord.com"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		reverse_proxy web:80
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: betel
+          POSTGRES_PASSWORD: betel
+          POSTGRES_DB: betel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U betel -d betel_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # Banco vazio de serviço: os testes da API aplicam as migrations nele.
+      TEST_DATABASE_URL: postgresql://betel:betel@localhost:5432/betel_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @betel/api prisma:generate
+      - name: Lint e formatação
+        run: |
+          pnpm lint
+          pnpm format:check
+      - name: Build (motor primeiro, pois API e web dependem dele)
+        run: |
+          pnpm --filter @betel/scoring build
+          pnpm -r --filter "!@betel/scoring" run build
+      - run: pnpm typecheck
+      - name: Testes (motor, API e web)
+        run: pnpm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: verificar
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: betel
+          POSTGRES_PASSWORD: betel
+          POSTGRES_DB: betel_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U betel -d betel_e2e"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://betel:betel@localhost:5432/betel_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @betel/api prisma:generate
+      - name: Build (motor, API e web)
+        run: |
+          pnpm --filter @betel/scoring build
+          pnpm -r --filter "!@betel/scoring" --filter "!@betel/e2e" run build
+      # Usa o Google Chrome que já vem no runner (channel "chrome"); não baixa navegadores.
+      - name: Testes e2e
+        run: pnpm e2e
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: verificar
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: SESSION_SECRET=segredo-local-apenas-para-validar-o-build docker compose build
+
+  # T-24: sobe a stack de produção com HTTPS local (Caddy usa CA interna para "localhost"),
+  # faz um backup e testa a restauração num banco temporário.
+  producao:
+    runs-on: ubuntu-latest
+    needs: verificar
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configuração de teste
+        run: |
+          sed -e 's/^DOMINIO=.*/DOMINIO=localhost/'               -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/"               -e "s/^SESSION_SECRET=.*/SESSION_SECRET=$(openssl rand -hex 32)/"               -e 's/^DISCORD_CLIENT_ID=.*/DISCORD_CLIENT_ID=ci/'               -e 's/^DISCORD_CLIENT_SECRET=.*/DISCORD_CLIENT_SECRET=ci/'               -e 's/^DISCORD_GUILD_ID=.*/DISCORD_GUILD_ID=1/'               -e 's/^ADMIN_DISCORD_IDS=.*/ADMIN_DISCORD_IDS=1/'               .env.producao.example > .env.producao
+      - name: Subir a stack
+        run: docker compose -f docker-compose.prod.yml --env-file .env.producao up -d --build --wait
+      - name: HTTPS, API e frontend respondem
+        run: |
+          curl -fsSk https://localhost/api/saude | grep '"status":"ok"'
+          curl -fsSk https://localhost/ | grep '<app-root>'
+          curl -fsSkI https://localhost/ | grep -i 'strict-transport-security'
+          curl -fsSk -o /dev/null -w '%{http_code}' https://localhost/api/auth/me | grep 401
+      - name: Backup e teste de restauração
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file .env.producao exec -T backup sh /scripts/backup.sh
+          docker compose -f docker-compose.prod.yml --env-file .env.producao exec -T backup sh /scripts/testar-restauracao.sh
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.producao logs --tail 200

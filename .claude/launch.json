@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["ng", "serve", "--port", "4200"],
+      "cwd": "web",
+      "port": 4200
+    },
+    {
+      "name": "web-8080",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["ng", "serve", "--port", "8080"],
+      "cwd": "web",
+      "port": 8080
+    }
+  ]
+}
