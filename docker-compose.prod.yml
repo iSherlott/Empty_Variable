@@ -50,10 +50,11 @@ services:
   caddy:
     image: caddy:2.8.4-alpine
     restart: unless-stopped
+    # CADDY_HTTP/CADDY_HTTPS só mudam no CI, que roda na mesma VPS do nginx de produção.
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${CADDY_HTTP:-80}:80"
+      - "${CADDY_HTTPS:-443}:443"
+      - "${CADDY_HTTPS:-443}:443/udp"
     environment:
       DOMINIO: ${DOMINIO}
     volumes:

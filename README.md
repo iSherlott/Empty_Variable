@@ -8,7 +8,7 @@ Sistema de pontuação por participação na instância Torre da Constelação (
 - **Épico II (loja e estoque):** análise em [`docs/analise/epico2-loja.md`](docs/analise/epico2-loja.md) e planejamento em [`docs/planejamento/epico2.md`](docs/planejamento/epico2.md)
 - **Épico III (Nebula):** análise em [`docs/analise/epico3-nebula.md`](docs/analise/epico3-nebula.md) e planejamento em [`docs/planejamento/epico3.md`](docs/planejamento/epico3.md)
 - **Login com o Discord (SSO):** [`docs/sso-discord.md`](docs/sso-discord.md)
-- **Implantação na VPS (HTTPS, backup e restauração):** [`docs/implantacao.md`](docs/implantacao.md)
+- **Implantação na VPS (HTTPS, backup, restauração, sub-rota e deploy pelo GitHub Actions):** [`docs/implantacao.md`](docs/implantacao.md)
 - **Relatórios de QA:** Épico I em [`docs/qualidade/relatorio-final.md`](docs/qualidade/relatorio-final.md) , Épico II em [`docs/qualidade/relatorio-epico2.md`](docs/qualidade/relatorio-epico2.md) e Épico III em [`docs/qualidade/relatorio-epico3.md`](docs/qualidade/relatorio-epico3.md)
 
 ## Estrutura

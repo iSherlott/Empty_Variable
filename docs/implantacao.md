@@ -143,3 +143,81 @@ As migrations novas são aplicadas quando a API sobe.
 - A sessão usa cookie `HttpOnly`, `Secure` e `SameSite=Lax`, e o banco guarda só o HMAC do token. Requisições que alteram dados precisam vir do próprio domínio.
 - O login simulado fica desligado em produção, em duas camadas: `AUTH_DEV_LOGIN=false` no Compose, e a API o recusa com `NODE_ENV=production`.
 - Para trocar o `SESSION_SECRET`, edite o `.env.producao` e suba de novo. Todas as sessões são invalidadas e cada pessoa precisa entrar outra vez.
+
+## 8. VPS compartilhada: sub-rota, Postgres existente e deploy pelo GitHub Actions
+
+As seções acima descrevem uma VPS só para o sistema, com o Caddy nas portas 80 e 443. Esta seção cobre o outro caso: uma VPS que já tem nginx, outros sistemas e um Postgres rodando. Nela o sistema fica numa sub-rota de um domínio que já existe (por exemplo `https://eyes.exemplo.com/emptyvariable/`).
+
+| Arquivo | Papel |
+|---|---|
+| `docker-compose.vps.yml` | `web` (só em `127.0.0.1`), `emptyvariable-api` e `emptyvariable-backup`. Sem Caddy e sem Postgres próprio |
+| `.env.vps.example` | Modelo do `.env` dessa stack |
+| `deploy/vps-deploy.sh` | Atualiza o código, faz backup, reconstrói e sobe a stack |
+| `deploy/nginx/emptyvariable.conf` e `deploy/vps-nginx.sh` | Sub-rota no nginx do host |
+| `.github/workflows/ci.yml` e `deploy.yml` | CI e deploy no runner self-hosted da VPS |
+
+### 8.1 Banco
+
+O sistema usa um banco e um usuário só dele dentro do Postgres que já roda na VPS. Crie os dois uma vez (troque `<contêiner>`, `<superusuário>` e a senha):
+
+```bash
+docker exec -i <contêiner> psql -U <superusuário> -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE emptyvariable LOGIN CREATEDB PASSWORD '<senha>';
+CREATE DATABASE emptyvariable OWNER emptyvariable;
+SQL
+```
+
+O `CREATEDB` existe para o teste de restauração, que cria e apaga um banco temporário. No `.env`:
+
+- `DB_HOST`: o nome do contêiner do Postgres.
+- `DB_NETWORK`: a rede Docker dele (`docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' <contêiner>`).
+- `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD`: os que você acabou de criar.
+
+O banco passa a depender da stack dona desse Postgres: se ela apagar o volume, os dados do sistema vão junto. Por isso o serviço `emptyvariable-backup` continua fazendo o `pg_dump` diário em `BACKUP_DIR`.
+
+### 8.2 Sub-rota
+
+- `APP_ORIGIN`: só a origem do domínio compartilhado (`https://eyes.exemplo.com`).
+- `APP_BASE_PATH`: a sub-rota (`/emptyvariable`). A API usa esse valor no redirect pós-login e no caminho dos cookies, e o frontend é compilado com `<base href="/emptyvariable/">`.
+- No portal do Discord, cadastre o redirect `<APP_ORIGIN><APP_BASE_PATH>/api/auth/discord/callback`.
+- `WEB_PORT`: uma porta livre em `127.0.0.1`.
+
+Depois do primeiro deploy, publique a sub-rota no nginx do host, apontando para o arquivo do site que já atende o domínio:
+
+```bash
+deploy/vps-nginx.sh /etc/nginx/sites-enabled/<site>
+```
+
+O script instala `/etc/nginx/snippets/emptyvariable.conf`, acrescenta um `include` no bloco `server` do site e recarrega o nginx. Se o `nginx -t` falhar, ele desfaz as duas alterações. Se o dono do site reinstalar o arquivo dele, o `include` some e o script precisa rodar de novo.
+
+O snippet não envia HSTS: essa política vale para o domínio inteiro e cabe ao sistema dono dele.
+
+### 8.3 Deploy
+
+Na VPS, de dentro do clone (que guarda o `.env` e os backups):
+
+```bash
+deploy/vps-deploy.sh deploy
+```
+
+O script exige o clone sem alterações locais, busca a `origin/main` (ou `DEPLOY_REF`), faz um backup se a stack já estiver no ar, reconstrói as imagens e espera a API ficar saudável. `deploy/vps-deploy.sh status` mostra os contêineres e a saúde da API.
+
+Pelo GitHub, o workflow **Deploy na VPS** roda esse mesmo script quando uma release é publicada ou quando alguém o dispara pela aba Actions (com uma tag ou um commit da `main`, se quiser). Um merge na `main` não implanta sozinho.
+
+Os comandos de backup e restauração das seções 3 a 5 valem aqui trocando `-f docker-compose.prod.yml --env-file .env.producao` por `-f docker-compose.vps.yml`, e o serviço `backup` por `emptyvariable-backup`.
+
+### 8.4 Runner self-hosted
+
+O CI e o deploy rodam num runner do GitHub Actions instalado na própria VPS, com os rótulos `self-hosted`, `linux` e `empty-variable`. Para registrar (precisa ser admin do repositório para gerar o token em **Settings → Actions → Runners → New self-hosted runner**):
+
+```bash
+cd /dev-home/actions-runner/empty-variable
+./config.sh --url https://github.com/<dono>/<repositório> --token <token> --name "$(hostname)-empty-variable" --labels empty-variable --unattended
+sudo ./svc.sh install "$USER" && sudo ./svc.sh start
+```
+
+O usuário do runner precisa estar no grupo `docker`. A VPS não precisa de Node nem de Chrome: o CI baixa o Node com o `setup-node` e usa o Chromium do Playwright.
+
+**Repositório público:** o workflow de um PR vindo de um fork é o do próprio fork, então a condição `if` do `ci.yml` não basta para impedir que código de terceiros rode na VPS. Em **Settings → Actions → General → Fork pull request workflows**, marque **Require approval for all external contributors** antes de registrar o runner.
+
+O CI sobe as stacks com nome de projeto e portas próprios de cada execução e as derruba no fim, para não encostar na stack de produção que divide o mesmo Docker.
