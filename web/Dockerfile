@@ -9,7 +9,9 @@ COPY web/package.json web/
 RUN pnpm install --frozen-lockfile --filter @betel/web...
 COPY packages/scoring packages/scoring
 COPY web web
-RUN pnpm --filter @betel/scoring build && pnpm --filter @betel/web build
+# Sub-rota (ex.: /emptyvariable/) quando o sistema divide o domínio com outro. Padrão: raiz.
+ARG BASE_HREF=/
+RUN pnpm --filter @betel/scoring build && pnpm --filter @betel/web build --base-href "$BASE_HREF"
 
 FROM nginx:1.27-alpine
 COPY infra/nginx/default.conf /etc/nginx/conf.d/default.conf

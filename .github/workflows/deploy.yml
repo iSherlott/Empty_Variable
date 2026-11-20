@@ -1,0 +1,46 @@
+name: Deploy na VPS
+
+# O deploy só roda quando uma release é publicada (pré-releases e rascunhos ficam de fora) ou
+# quando alguém o dispara pela aba Actions. Um merge na main, sozinho, nunca implanta.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag ou commit a implantar (precisa estar na main; vazio = ponta da main)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Um deploy por vez: o segundo espera o primeiro terminar.
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: [self-hosted, linux, empty-variable]
+    timeout-minutes: 30
+    env:
+      # Clone permanente na VPS: é ele que guarda o .env e os backups. O script busca o código sozinho.
+      PASTA: /dev-home/Empty_Variable
+      DEPLOY_REF: ${{ github.event.release.tag_name || inputs.ref }}
+    steps:
+      - name: Deploy de ${{ github.event.release.tag_name || inputs.ref || 'main' }}
+        run: '"$PASTA/deploy/vps-deploy.sh" deploy'
+
+      - name: Conferir
+        run: |
+          cd "$PASTA"
+          echo "no ar: $(git rev-parse --short HEAD) ($(git describe --tags --always))"
+          for _ in $(seq 1 30); do
+            if deploy/vps-deploy.sh status; then exit 0; fi
+            sleep 2
+          done
+          echo "a API não respondeu" >&2
+          docker compose -f docker-compose.vps.yml logs --tail 50 emptyvariable-api >&2
+          exit 1

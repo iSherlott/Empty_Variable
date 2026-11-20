@@ -214,3 +214,46 @@ describe("Login simulado ligado (AUTH_DEV_LOGIN)", () => {
     expect(me.body).toMatchObject({ discordUsername: "dev", papel: "ADMIN" });
   });
 });
+
+describe("Autenticação numa sub-rota (APP_BASE_PATH)", () => {
+  let ctx: Contexto;
+
+  beforeAll(async () => {
+    ctx = await criarApp({ caminhoBase: "/emptyvariable" });
+  });
+  afterAll(async () => {
+    await ctx.fechar();
+  });
+  beforeEach(async () => {
+    await ctx.limparBanco();
+  });
+
+  it("cookies ficam restritos à sub-rota e o login volta para ela", async () => {
+    ctx.discord.perfis.set("c1", { id: "600", username: "caio", globalName: null, avatar: null });
+    const inicio = await ctx.http().get("/api/auth/discord").expect(302);
+    const cookieState = cookiesDe(inicio).find((c) => c.startsWith("betel_oauth_state="))!;
+    expect(cookieState).toContain("Path=/emptyvariable/api/auth");
+    const state = new URL(inicio.headers["location"] as string).searchParams.get("state")!;
+    const fim = await ctx
+      .http()
+      .get(`/api/auth/discord/callback?code=c1&state=${state}`)
+      .set("Cookie", cookieState.split(";")[0]!)
+      .expect(302);
+    expect(fim.headers["location"]).toBe(`${ORIGEM}/emptyvariable/`);
+    const sessao = cookiesDe(fim).find((c) => c.startsWith("betel_sessao="))!;
+    expect(sessao).toMatch(/Path=\/emptyvariable(;|$)/);
+
+    const sair = await ctx
+      .http()
+      .post("/api/auth/logout")
+      .set("Origin", ORIGEM)
+      .set("Cookie", sessao.split(";")[0]!)
+      .expect(204);
+    expect(cookiesDe(sair).find((c) => c.startsWith("betel_sessao="))).toMatch(/Path=\/emptyvariable(;|$)/);
+  });
+
+  it("falha no login volta para o /login da sub-rota", async () => {
+    const r = await ctx.http().get("/api/auth/discord/callback?code=x&state=y").expect(302);
+    expect(r.headers["location"]).toBe(`${ORIGEM}/emptyvariable/login?erro=falha`);
+  });
+});

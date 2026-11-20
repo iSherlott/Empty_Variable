@@ -6,6 +6,7 @@ export const ORIGEM = `http://127.0.0.1:${PORTA}`;
 /**
  * T-23: testes ponta a ponta. `servidor.mjs` sobe Postgres, API e frontend já compilados.
  * Usa o Google Chrome instalado na máquina (channel "chrome"), sem baixar navegadores.
+ * No runner da VPS não há Chrome: o CI define E2E_CANAL=chromium e usa o Chromium do Playwright.
  */
 export default defineConfig({
   testDir: "testes",
@@ -19,7 +20,7 @@ export default defineConfig({
   reporter: process.env["CI"] ? "list" : [["list"]],
   use: {
     baseURL: ORIGEM,
-    channel: "chrome",
+    channel: process.env["E2E_CANAL"] ?? "chrome",
     locale: "pt-BR",
     timezoneId: "America/Sao_Paulo",
     trace: "retain-on-failure",

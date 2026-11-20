@@ -94,5 +94,5 @@ export function iconeDaClasse(nome: string): string | null {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
   const id = Object.hasOwn(ICONES, chave) ? ICONES[chave] : undefined;
-  return id === undefined ? null : `/icones-classes/${id}.png`;
+  return id === undefined ? null : `icones-classes/${id}.png`;
 }

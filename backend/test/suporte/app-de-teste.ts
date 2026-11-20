@@ -17,6 +17,7 @@ export const ADMIN_DISCORD_ID = "100000000000000001";
 
 export const CONFIG_TESTE: Configuracao = {
   appOrigin: ORIGEM,
+  caminhoBase: "",
   sessionSecret: "segredo-de-teste-com-pelo-menos-32-caracteres",
   cookieSecure: true,
   adminDiscordIds: new Set([ADMIN_DISCORD_ID]),

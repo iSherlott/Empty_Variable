@@ -257,7 +257,7 @@ test("estoque registra as entradas e a Loja mostra o saldo do catálogo", async 
   const cartaoPersonagem = page.getByRole("button", { name: "Editar ficha de Receb\u00eador-MTK" });
   await expect(cartaoPersonagem).toContainText("Mestre Celestial");
   const icone = cartaoPersonagem.locator("img");
-  await expect(icone).toHaveAttribute("src", "/icones-classes/4302.png");
+  await expect(icone).toHaveAttribute("src", "icones-classes/4302.png");
   await expect.poll(() => icone.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
   await cartaoPersonagem.click();
   await expect(page.getByRole("dialog", { name: "Editar personagem" })).toBeVisible();

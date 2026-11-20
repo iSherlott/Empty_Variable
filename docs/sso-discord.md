@@ -14,6 +14,7 @@ O sistema não tem senha própria. Todo mundo entra com a conta do Discord (OAut
 | Ambiente | `APP_ORIGIN` | Redirect a cadastrar |
 |---|---|---|
 | Produção | `https://<seu-domínio>` | `https://<seu-domínio>/api/auth/discord/callback` |
+| Produção numa sub-rota (`APP_BASE_PATH=/emptyvariable`) | `https://<domínio>` | `https://<domínio>/emptyvariable/api/auth/discord/callback` |
 | Local com Docker | `http://localhost:4200` | `http://localhost:4200/api/auth/discord/callback` |
 | Local com `ng serve` | `http://localhost:4200` | `http://localhost:4200/api/auth/discord/callback` |
 

@@ -15,10 +15,11 @@ type Env = Record<string, string | undefined>;
 type Buscar = (url: string, init: RequestInit) => Promise<{ status: number }>;
 
 const origemDe = (env: Env) => (env["APP_ORIGIN"] ?? "").replace(/\/+$/, "");
+const caminhoBaseBruto = (env: Env) => (env["APP_BASE_PATH"] ?? "").trim().replace(/\/+$/, "");
 
 /** URL que precisa estar cadastrada em OAuth2 → Redirects no portal do Discord. */
 export function redirectEsperado(env: Env): string {
-  return env["DISCORD_REDIRECT_URI"] || `${origemDe(env)}/api/auth/discord/callback`;
+  return env["DISCORD_REDIRECT_URI"] || `${origemDe(env)}${caminhoBaseBruto(env)}/api/auth/discord/callback`;
 }
 
 /** Checagens locais, sem rede. */
@@ -31,6 +32,14 @@ export function diagnosticarConfiguracao(env: Env): ItemDiagnostico[] {
     r.push({ nivel: "erro", texto: "APP_ORIGIN precisa ser só a origem, ex.: https://betel.seudominio.com" });
   } else {
     r.push({ nivel: "ok", texto: `APP_ORIGIN = ${origem}` });
+  }
+  const caminhoBase = caminhoBaseBruto(env);
+  if (caminhoBase !== "") {
+    if (/^(\/[A-Za-z0-9._~-]+)+$/.test(caminhoBase)) {
+      r.push({ nivel: "ok", texto: `APP_BASE_PATH = ${caminhoBase} (sistema servido numa sub-rota)` });
+    } else {
+      r.push({ nivel: "erro", texto: 'APP_BASE_PATH precisa ser um caminho como "/emptyvariable".' });
+    }
   }
   if ((env["SESSION_SECRET"] ?? "").length < 32) {
     r.push({
@@ -70,10 +79,10 @@ export function diagnosticarConfiguracao(env: Env): ItemDiagnostico[] {
   }
 
   const redirect = redirectEsperado(env);
-  if (origem !== "" && !redirect.startsWith(origem)) {
+  if (origem !== "" && !redirect.startsWith(`${origem}${caminhoBase}/`)) {
     r.push({
       nivel: "aviso",
-      texto: `DISCORD_REDIRECT_URI (${redirect}) não está em APP_ORIGIN: o cookie da sessão não vai valer.`,
+      texto: `DISCORD_REDIRECT_URI (${redirect}) não está em APP_ORIGIN${caminhoBase === "" ? "" : " + APP_BASE_PATH"}: o cookie da sessão não vai valer.`,
     });
   }
   if (https && env["COOKIE_SECURE"] === "false") {

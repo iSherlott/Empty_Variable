@@ -2,6 +2,11 @@
 export interface Configuracao {
   /** Origem pública do sistema (ex.: https://betel.exemplo.com). Usada no redirect pós-login e na checagem de Origin. */
   appOrigin: string;
+  /**
+   * Prefixo de caminho quando o sistema divide o domínio com outro e fica numa sub-rota
+   * (ex.: "/emptyvariable"). Vazio quando está na raiz. Entra no redirect pós-login e nos cookies.
+   */
+  caminhoBase: string;
   sessionSecret: string;
   /** Cookies com a flag Secure. Só desligue em desenvolvimento sem HTTPS. */
   cookieSecure: boolean;
@@ -17,6 +22,15 @@ export const CONFIGURACAO = Symbol("CONFIGURACAO");
 
 const MIN_SEGREDO = 32;
 
+/** Lê APP_BASE_PATH: vazio (raiz) ou um caminho como "/emptyvariable", sem barra no fim. */
+export function caminhoBaseDe(env: Record<string, string | undefined>): string {
+  const caminho = (env["APP_BASE_PATH"] ?? "").trim().replace(/\/+$/, "");
+  if (caminho !== "" && !/^(\/[A-Za-z0-9._~-]+)+$/.test(caminho)) {
+    throw new Error('APP_BASE_PATH precisa ser um caminho como "/emptyvariable" (ou vazio para a raiz).');
+  }
+  return caminho;
+}
+
 export function carregarConfiguracao(env: NodeJS.ProcessEnv = process.env): Configuracao {
   const sessionSecret = env["SESSION_SECRET"] ?? "";
   if (sessionSecret.length < MIN_SEGREDO) {
@@ -29,11 +43,13 @@ export function carregarConfiguracao(env: NodeJS.ProcessEnv = process.env): Conf
   const clientId = env["DISCORD_CLIENT_ID"] ?? "";
   const clientSecret = env["DISCORD_CLIENT_SECRET"] ?? "";
   const guildId = env["DISCORD_GUILD_ID"] ?? "";
-  const redirectUri = env["DISCORD_REDIRECT_URI"] || `${appOrigin}/api/auth/discord/callback`;
+  const caminhoBase = caminhoBaseDe(env);
+  const redirectUri = env["DISCORD_REDIRECT_URI"] || `${appOrigin}${caminhoBase}/api/auth/discord/callback`;
   const discordCompleto = clientId !== "" && clientSecret !== "" && guildId !== "";
 
   return {
     appOrigin,
+    caminhoBase,
     sessionSecret,
     cookieSecure: env["COOKIE_SECURE"] !== "false",
     adminDiscordIds: new Set(
