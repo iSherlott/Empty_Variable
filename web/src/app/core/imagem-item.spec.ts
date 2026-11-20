@@ -18,8 +18,8 @@ describe("imagem do item (M14, D41)", () => {
   });
 
   it("monta o endereço do cache só com ID inteiro positivo", () => {
-    expect(urlImagemItem(1000397)).toBe("/api/imagens/item/1000397");
-    expect(urlImagemItem(501, true)).toBe("/api/imagens/item/501?tipo=ilustracao");
+    expect(urlImagemItem(1000397)).toBe("api/imagens/item/1000397");
+    expect(urlImagemItem(501, true)).toBe("api/imagens/item/501?tipo=ilustracao");
     expect(urlImagemItem(null)).toBeNull();
     expect(urlImagemItem(undefined)).toBeNull();
     expect(urlImagemItem(0)).toBeNull();
@@ -36,7 +36,7 @@ describe("imagem do item (M14, D41)", () => {
 
     f.componentRef.setInput("idJogo", 1000397);
     f.detectChanges();
-    expect(el.querySelector("img")?.getAttribute("src")).toBe("/api/imagens/item/1000397");
+    expect(el.querySelector("img")?.getAttribute("src")).toBe("api/imagens/item/1000397");
 
     el.querySelector("img")!.dispatchEvent(new Event("error"));
     f.detectChanges();
@@ -46,6 +46,6 @@ describe("imagem do item (M14, D41)", () => {
     // Outro item no mesmo componente tenta a imagem de novo
     f.componentRef.setInput("idJogo", 1000396);
     f.detectChanges();
-    expect(el.querySelector("img")?.getAttribute("src")).toBe("/api/imagens/item/1000396");
+    expect(el.querySelector("img")?.getAttribute("src")).toBe("api/imagens/item/1000396");
   });
 });

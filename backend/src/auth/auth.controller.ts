@@ -49,7 +49,17 @@ export class AuthController {
     @Inject(DISCORD_CLIENTE) private readonly discord: DiscordCliente,
   ) {}
 
-  private cookie(maxAge: number, path = "/"): CookieOptions {
+  /** Caminho do cookie da sessão: a sub-rota do sistema, ou "/" quando ele está na raiz. */
+  private get caminhoSessao(): string {
+    return this.config.caminhoBase || "/";
+  }
+
+  /** Caminho do cookie de `state` do OAuth2, restrito às rotas de login. */
+  private get caminhoState(): string {
+    return `${this.config.caminhoBase}/api/auth`;
+  }
+
+  private cookie(maxAge: number, path = this.caminhoSessao): CookieOptions {
     return { httpOnly: true, secure: this.config.cookieSecure, sameSite: "lax", path, maxAge };
   }
 
@@ -60,7 +70,7 @@ export class AuthController {
     if (this.config.discord === null)
       throw new ServiceUnavailableException("Login com Discord não configurado.");
     const state = randomBytes(24).toString("base64url");
-    res.cookie(COOKIE_STATE, state, this.cookie(DURACAO_STATE_MS, "/api/auth"));
+    res.cookie(COOKIE_STATE, state, this.cookie(DURACAO_STATE_MS, this.caminhoState));
     res.redirect(302, this.discord.urlAutorizacao(state));
   }
 
@@ -73,9 +83,12 @@ export class AuthController {
     @Res() res: Response,
   ): Promise<void> {
     const esperado: unknown = req.cookies?.[COOKIE_STATE];
-    res.clearCookie(COOKIE_STATE, { path: "/api/auth" });
+    res.clearCookie(COOKIE_STATE, { path: this.caminhoState });
     const voltar = (erro?: string) =>
-      res.redirect(302, `${this.config.appOrigin}/${erro === undefined ? "" : `login?erro=${erro}`}`);
+      res.redirect(
+        302,
+        `${this.config.appOrigin}${this.config.caminhoBase}/${erro === undefined ? "" : `login?erro=${erro}`}`,
+      );
 
     if (typeof code !== "string" || typeof state !== "string" || typeof esperado !== "string") {
       voltar("falha");
@@ -152,6 +165,6 @@ export class AuthController {
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
     const token: unknown = req.cookies?.[COOKIE_SESSAO];
     if (typeof token === "string") await this.sessoes.encerrar(token);
-    res.clearCookie(COOKIE_SESSAO, { path: "/" });
+    res.clearCookie(COOKIE_SESSAO, { path: this.caminhoSessao });
   }
 }

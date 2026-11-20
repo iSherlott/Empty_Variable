@@ -5,6 +5,7 @@ import {
   redirectEsperado,
   validarCredenciais,
 } from "../src/auth/diagnostico-sso.js";
+import { carregarConfiguracao } from "../src/configuracao.js";
 
 const COMPLETO = {
   APP_ORIGIN: "https://betel.exemplo.com",
@@ -57,6 +58,29 @@ describe("diagnóstico do SSO", () => {
         AUTH_DEV_LOGIN: "true",
       }),
     ).not.toContain("aviso");
+  });
+
+  it("sub-rota: APP_BASE_PATH entra no redirect esperado e é validado", () => {
+    const env = { ...COMPLETO, APP_BASE_PATH: "/emptyvariable/" };
+    expect(redirectEsperado(env)).toBe("https://betel.exemplo.com/emptyvariable/api/auth/discord/callback");
+    expect(diagnosticarConfiguracao(env).every((i) => i.nivel === "ok")).toBe(true);
+    expect(niveis({ ...COMPLETO, APP_BASE_PATH: "sem-barra" })).toContain("erro");
+    // Um redirect na raiz não recebe o cookie de state, que fica restrito à sub-rota.
+    expect(
+      niveis({ ...env, DISCORD_REDIRECT_URI: "https://betel.exemplo.com/api/auth/discord/callback" }),
+    ).toContain("aviso");
+  });
+
+  it("a configuração da API lê APP_BASE_PATH (vazio = raiz) e recusa um caminho inválido", () => {
+    expect(carregarConfiguracao(COMPLETO).caminhoBase).toBe("");
+    const naSubRota = carregarConfiguracao({ ...COMPLETO, APP_BASE_PATH: "/emptyvariable/" });
+    expect(naSubRota.caminhoBase).toBe("/emptyvariable");
+    expect(naSubRota.discord?.redirectUri).toBe(
+      "https://betel.exemplo.com/emptyvariable/api/auth/discord/callback",
+    );
+    expect(() => carregarConfiguracao({ ...COMPLETO, APP_BASE_PATH: "emptyvariable" })).toThrow(
+      /APP_BASE_PATH/,
+    );
   });
 
   it("valida as credenciais no endpoint de token do Discord, com Basic auth", async () => {

@@ -2,10 +2,13 @@ import { Component, computed, effect, input, signal } from "@angular/core";
 import { IconeComponent } from "./icone.component";
 import { iconeDoItem, tomDe } from "./visual";
 
-/** Endereço da imagem do item no Betel (a API busca na Divine Pride e guarda em cache, D41). */
+/**
+ * Endereço da imagem do item no Betel (a API busca na Divine Pride e guarda em cache, D41).
+ * Relativo ao `<base href>`, para valer também quando o sistema fica numa sub-rota.
+ */
 export function urlImagemItem(idJogo: number | null | undefined, ilustracao = false): string | null {
   if (idJogo === null || idJogo === undefined || !Number.isInteger(idJogo) || idJogo < 1) return null;
-  return `/api/imagens/item/${idJogo}${ilustracao ? "?tipo=ilustracao" : ""}`;
+  return `api/imagens/item/${idJogo}${ilustracao ? "?tipo=ilustracao" : ""}`;
 }
 
 /** Remove apenas os pixels quase brancos alcançáveis a partir da borda. */

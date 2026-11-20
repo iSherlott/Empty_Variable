@@ -26,7 +26,7 @@ const ERROS: Record<string, string> = {
         </mat-card-content>
         <mat-card-actions>
           <!-- Navegação completa: o fluxo OAuth começa na API -->
-          <a mat-flat-button href="/api/auth/discord">Entrar com Discord</a>
+          <a mat-flat-button href="api/auth/discord">Entrar com Discord</a>
         </mat-card-actions>
       </mat-card>
     </div>

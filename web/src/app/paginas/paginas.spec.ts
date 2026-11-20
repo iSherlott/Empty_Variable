@@ -39,7 +39,7 @@ describe("LoginComponent", () => {
     f.detectChanges();
     expect(texto(f)).toContain("Acesso restrito aos membros do servidor");
     const link = (f.nativeElement as HTMLElement).querySelector("a")!;
-    expect(link.getAttribute("href")).toBe("/api/auth/discord");
+    expect(link.getAttribute("href")).toBe("api/auth/discord");
   });
 });
 

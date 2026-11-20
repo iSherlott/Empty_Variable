@@ -1,3 +1,4 @@
+import { DOCUMENT } from "@angular/common";
 import { HttpErrorResponse, type HttpInterceptorFn } from "@angular/common/http";
 import { inject } from "@angular/core";
 import { type CanActivateFn, Router } from "@angular/router";
@@ -49,6 +50,21 @@ export const inicioGuard: CanActivateFn = async () => {
   const usuario = await inject(AuthService).carregar();
   if (usuario === null) return router.parseUrl("/login");
   return usuario.papel === "ADMIN" ? router.parseUrl("/admin/estoque") : router.parseUrl("/loja");
+};
+
+/** Pasta do `<base href>` (ex.: "/emptyvariable/"), ou "/" quando o sistema está na raiz do domínio. */
+export function caminhoBase(baseURI: string): string {
+  return new URL(baseURI).pathname.replace(/[^/]*$/, "");
+}
+
+/**
+ * Sub-rota: os endereços absolutos do próprio sistema ("/api/...", "/equipamentos-latam.json")
+ * passam a valer a partir do `<base href>`. Na raiz, nada muda.
+ */
+export const caminhoBaseInterceptor: HttpInterceptorFn = (req, next) => {
+  const base = caminhoBase(inject(DOCUMENT).baseURI);
+  if (base === "/" || !req.url.startsWith("/") || req.url.startsWith("//")) return next(req);
+  return next(req.clone({ url: `${base}${req.url.slice(1)}` }));
 };
 
 /** Sessão expirada durante o uso: limpa o estado e volta para o login. */

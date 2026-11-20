@@ -7,7 +7,7 @@ import {
   type RouterStateSnapshot,
   type UrlTree,
 } from "@angular/router";
-import { adminGuard, gestorGuard, inicioGuard, vinculadoGuard } from "./guardas";
+import { adminGuard, caminhoBase, gestorGuard, inicioGuard, vinculadoGuard } from "./guardas";
 import type { UsuarioMe } from "./modelos";
 
 const base: UsuarioMe = {
@@ -91,5 +91,13 @@ describe("Guardas de rota", () => {
 
   it("área do membro: sem vínculo aprovado vai para /vinculo (D12)", async () => {
     expect(await rodar(vinculadoGuard, { ...base, vinculoPendente: true })).toBe("/vinculo");
+  });
+});
+
+describe("Caminho base (sub-rota)", () => {
+  it("na raiz é '/'; numa sub-rota é a pasta do <base href>", () => {
+    expect(caminhoBase("https://betel.exemplo.com/")).toBe("/");
+    expect(caminhoBase("http://localhost:9876/context.html")).toBe("/");
+    expect(caminhoBase("https://eyes.exemplo.com/emptyvariable/")).toBe("/emptyvariable/");
   });
 });
